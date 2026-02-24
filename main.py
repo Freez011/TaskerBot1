@@ -32,8 +32,9 @@ async def run_http_server():
     await site.start()
     logger.info(f"HTTP server started on port {port}")
 
-    # Оставляем сервер работать бесконечно
-    await asyncio.Event().wait()
+    # Бесконечный цикл вместо asyncio.Event().wait() (чтобы избежать ошибки Task was destroyed)
+    while True:
+        await asyncio.sleep(3600)
 
 # --- Команды бота ---
 async def set_commands(bot: Bot):
