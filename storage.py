@@ -5,8 +5,8 @@ from datetime import datetime
 from typing import List, Dict, Any, Tuple
 
 # Переменные окружения (должны быть заданы на Render)
-GIST_ID = os.getenv('b1b85fcbe9c78f682cc61b06b9a9b23f')           # ID вашего Gist (например, "3b546069d2856e6051bbe3c1080f1b5d")
-GIST_TOKEN = os.getenv('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')     # Токен GitHub с правами gist
+GIST_ID = os.getenv(b1b85fcbe9c78f682cc61b06b9a9b23f)           # ID вашего Gist (например, "3b546069d2856e6051bbe3c1080f1b5d")
+GIST_TOKEN = os.getenv(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)     # Токен GitHub с правами gist
 GIST_FILENAME = 'tasks.json'             # Имя файла внутри Gist
 
 def _load_from_gist() -> Dict[str, Any]:
@@ -129,3 +129,4 @@ async def delete_task(task_id: int, user_id: int) -> bool:
         _save_to_gist(data)
         return True
     return False
+
