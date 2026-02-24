@@ -6,6 +6,8 @@ from aiogram.types import ParseMode, ReplyKeyboardMarkup, KeyboardButton, ReplyK
 from datetime import datetime
 import storage as st
 
+logger = logging.getLogger(__name__)
+
 class TaskStates(StatesGroup):
     waiting_for_text = State()
     waiting_for_time = State()
@@ -58,6 +60,7 @@ async def process_text(message: types.Message, state: FSMContext):
     )
 
 async def process_time(message: types.Message, state: FSMContext):
+    logger.info(f"process_time вызван с текстом: {message.text}")
     time_str = message.text.strip()
     try:
         remind_time = datetime.strptime(time_str, "%d.%m.%Y %H:%M")
@@ -73,7 +76,14 @@ async def process_time(message: types.Message, state: FSMContext):
     text = data['text']
     user_id = message.from_user.id
 
-    task_id = await st.add_task(user_id, text, remind_time)
+    try:
+        task_id = await st.add_task(user_id, text, remind_time)
+    except Exception as e:
+        logger.exception("Ошибка при добавлении задачи в Gist")
+        await message.answer("❌ Не удалось сохранить задачу из-за технической ошибки. Попробуйте позже.")
+        await state.finish()
+        return
+
     await state.finish()
     await message.answer(
         f"✅ Задача добавлена!\n\n"
@@ -93,7 +103,12 @@ async def cmd_cancel(message: types.Message, state: FSMContext):
 
 async def cmd_tasks(message: types.Message):
     user_id = message.from_user.id
-    tasks = await st.get_user_tasks(user_id, only_active=True)
+    try:
+        tasks = await st.get_user_tasks(user_id, only_active=True)
+    except Exception as e:
+        logger.exception("Ошибка при получении задач")
+        await message.answer("❌ Не удалось получить задачи. Попробуйте позже.")
+        return
     if not tasks:
         await message.answer("У вас нет активных задач.")
         return
@@ -117,7 +132,12 @@ async def cmd_delete(message: types.Message):
         return
 
     user_id = message.from_user.id
-    success = await st.delete_task(task_id, user_id)
+    try:
+        success = await st.delete_task(task_id, user_id)
+    except Exception as e:
+        logger.exception("Ошибка при удалении задачи")
+        await message.answer("❌ Не удалось удалить задачу. Попробуйте позже.")
+        return
     if success:
         await message.answer(f"✅ Задача ID {task_id} удалена.")
     else:
