@@ -47,7 +47,6 @@ def _load_from_gist() -> Dict[str, Any]:
     
     files = response.json().get('files', {})
     
-    # Если файла нет — создаём новый и сразу сохраняем
     if GIST_FILENAME not in files:
         logger.info("Файл tasks.json не найден в Gist, создаём новый")
         new_data = {"tasks": [], "counter": 1}
@@ -69,7 +68,6 @@ def _load_from_gist() -> Dict[str, Any]:
         _save_to_gist(new_data)
         return new_data
     
-    # Проверяем структуру
     if not isinstance(data, dict) or "tasks" not in data or "counter" not in data:
         logger.warning("⚠️ Неверная структура данных в Gist, создаём новую и сохраняем")
         new_data = {"tasks": [], "counter": 1}
@@ -106,7 +104,7 @@ async def add_task(user_id: int, text: str, remind_time: datetime) -> int:
 
 async def get_pending_tasks(limit: int = 100) -> List[Tuple[int, int, str, str]]:
     data = _load_from_gist()
-    now = datetime.now().isoformat()
+    now = datetime.utcnow().isoformat()
     pending = []
     for task in data["tasks"]:
         if not task["notified"] and task["remind_time"] <= now:
@@ -138,11 +136,8 @@ async def get_user_tasks(user_id: int, only_active: bool = True) -> List[tuple]:
             continue
         if only_active and task["notified"]:
             continue
-        dt = datetime.fromisoformat(task["remind_time"])
-        if only_active:
-            result.append((task["id"], task["text"], dt.isoformat()))
-        else:
-            result.append((task["id"], task["text"], dt.isoformat(), task["notified"]))
+        result.append((task["id"], task["text"], task["remind_time"]))
+    # Сортировка по времени (ближайшие сверху)
     result.sort(key=lambda x: x[2])
     return result
 
