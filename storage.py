@@ -1,11 +1,14 @@
 import json
 import os
 import requests
+import logging
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
 
+logger = logging.getLogger(__name__)
+
 # Переменные окружения (должны быть заданы на Render)
-GIST_ID = os.getenv("GIST_ID")           # ID вашего Gist (например, "3b546069d2856e6051bbe3c1080f1b5d")
+GIST_ID = os.getenv("GIST_ID")           # ID вашего Gist
 GIST_TOKEN = os.getenv("GIST_TOKEN")     # Токен GitHub с правами gist
 GIST_FILENAME = 'tasks.json'             # Имя файла внутри Gist
 
@@ -16,8 +19,12 @@ def _load_from_gist() -> Dict[str, Any]:
     
     url = f'https://api.github.com/gists/{GIST_ID}'
     headers = {'Authorization': f'token {GIST_TOKEN}'}
-    response = requests.get(url, headers=headers)
-    response.raise_for_status()
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Ошибка при загрузке из Gist: {e}")
+        raise
     
     files = response.json().get('files', {})
     if GIST_FILENAME not in files:
@@ -26,7 +33,11 @@ def _load_from_gist() -> Dict[str, Any]:
     
     content = files[GIST_FILENAME].get('content')
     if content:
-        return json.loads(content)
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.error(f"Ошибка парсинга JSON из Gist: {e}")
+            return {"tasks": [], "counter": 1}
     else:
         return {"tasks": [], "counter": 1}
 
@@ -41,15 +52,21 @@ def _save_to_gist(data: Dict[str, Any]):
             }
         }
     }
-    response = requests.patch(url, json=payload, headers=headers)
-    response.raise_for_status()
+    try:
+        response = requests.patch(url, json=payload, headers=headers, timeout=10)
+        response.raise_for_status()
+        logger.info(f"Данные успешно сохранены в Gist. Всего задач: {len(data['tasks'])}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Ошибка при сохранении в Gist: {e}")
+        raise
 
 def init_storage():
     """Инициализация хранилища (проверяет доступность Gist)."""
     try:
         _load_from_gist()
+        logger.info("Подключение к Gist успешно")
     except Exception as e:
-        print(f"Ошибка подключения к Gist: {e}")
+        logger.exception("Ошибка подключения к Gist")
         raise
 
 async def add_task(user_id: int, text: str, remind_time: datetime) -> int:
@@ -67,6 +84,7 @@ async def add_task(user_id: int, text: str, remind_time: datetime) -> int:
     }
     data["tasks"].append(task)
     _save_to_gist(data)
+    logger.info(f"Задача {task_id} добавлена для пользователя {user_id}")
     return task_id
 
 async def get_pending_tasks(limit: int = 100) -> List[Tuple[int, int, str, str]]:
@@ -87,6 +105,7 @@ async def get_pending_tasks(limit: int = 100) -> List[Tuple[int, int, str, str]]
             ))
         if len(pending) >= limit:
             break
+    logger.info(f"Найдено {len(pending)} задач для отправки")
     return pending
 
 async def mark_notified(task_id: int):
@@ -97,6 +116,7 @@ async def mark_notified(task_id: int):
             task["notified"] = True
             break
     _save_to_gist(data)
+    logger.info(f"Задача {task_id} отмечена как уведомлённая")
 
 async def get_user_tasks(user_id: int, only_active: bool = True) -> List[tuple]:
     """
@@ -127,8 +147,6 @@ async def delete_task(task_id: int, user_id: int) -> bool:
     data["tasks"] = [t for t in data["tasks"] if not (t["id"] == task_id and t["user_id"] == user_id)]
     if len(data["tasks"]) < initial_len:
         _save_to_gist(data)
+        logger.info(f"Задача {task_id} удалена пользователем {user_id}")
         return True
     return False
-
-
-
