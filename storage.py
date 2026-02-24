@@ -8,12 +8,24 @@ from typing import List, Dict, Any, Tuple
 logger = logging.getLogger(__name__)
 
 # Переменные окружения (должны быть заданы на Render)
-GIST_ID = os.getenv("GIST_ID")           # ID вашего Gist
-GIST_TOKEN = os.getenv("GIST_TOKEN")     # Токен GitHub с правами gist
-GIST_FILENAME = 'tasks.json'             # Имя файла внутри Gist
+GIST_ID = os.getenv("GIST_ID")
+GIST_TOKEN = os.getenv("GIST_TOKEN")
+GIST_FILENAME = 'tasks.json'
+
+def _ensure_structure(data: Any) -> Dict[str, Any]:
+    """
+    Приводит загруженные данные к ожидаемой структуре:
+    {"tasks": list, "counter": int}
+    """
+    if isinstance(data, dict) and "tasks" in data and "counter" in data:
+        return data
+    else:
+        # Если структура не та, создаём новую
+        logger.warning("Неверная структура данных в Gist, создаём новую")
+        return {"tasks": [], "counter": 1}
 
 def _load_from_gist() -> Dict[str, Any]:
-    """Загружает данные из Gist."""
+    """Загружает данные из Gist и приводит к нужной структуре."""
     if not GIST_ID or not GIST_TOKEN:
         raise ValueError("GIST_ID и GIST_TOKEN должны быть заданы в переменных окружения")
     
@@ -28,18 +40,20 @@ def _load_from_gist() -> Dict[str, Any]:
     
     files = response.json().get('files', {})
     if GIST_FILENAME not in files:
-        # Если файла ещё нет, возвращаем пустую структуру
+        logger.info("Файл tasks.json не найден в Gist, создаём новый")
         return {"tasks": [], "counter": 1}
     
     content = files[GIST_FILENAME].get('content')
-    if content:
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError as e:
-            logger.error(f"Ошибка парсинга JSON из Gist: {e}")
-            return {"tasks": [], "counter": 1}
-    else:
+    if not content:
         return {"tasks": [], "counter": 1}
+    
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as e:
+        logger.error(f"Ошибка парсинга JSON: {e}, создаём новую структуру")
+        return {"tasks": [], "counter": 1}
+    
+    return _ensure_structure(data)
 
 def _save_to_gist(data: Dict[str, Any]):
     """Сохраняет данные в Gist."""
@@ -88,10 +102,6 @@ async def add_task(user_id: int, text: str, remind_time: datetime) -> int:
     return task_id
 
 async def get_pending_tasks(limit: int = 100) -> List[Tuple[int, int, str, str]]:
-    """
-    Возвращает список задач, у которых время наступило и notified=False.
-    Каждый элемент кортеж: (id, user_id, text, remind_time_str)
-    """
     data = _load_from_gist()
     now = datetime.now().isoformat()
     pending = []
@@ -109,7 +119,6 @@ async def get_pending_tasks(limit: int = 100) -> List[Tuple[int, int, str, str]]
     return pending
 
 async def mark_notified(task_id: int):
-    """Отмечает задачу как уведомлённую."""
     data = _load_from_gist()
     for task in data["tasks"]:
         if task["id"] == task_id:
@@ -119,11 +128,6 @@ async def mark_notified(task_id: int):
     logger.info(f"Задача {task_id} отмечена как уведомлённая")
 
 async def get_user_tasks(user_id: int, only_active: bool = True) -> List[tuple]:
-    """
-    Возвращает задачи пользователя.
-    Если only_active=True, только не уведомлённые.
-    Возвращает список кортежей (id, text, remind_time_str[, notified])
-    """
     data = _load_from_gist()
     result = []
     for task in data["tasks"]:
@@ -136,12 +140,10 @@ async def get_user_tasks(user_id: int, only_active: bool = True) -> List[tuple]:
             result.append((task["id"], task["text"], dt.isoformat()))
         else:
             result.append((task["id"], task["text"], dt.isoformat(), task["notified"]))
-    # Сортировка по времени (ближайшие сверху)
     result.sort(key=lambda x: x[2])
     return result
 
 async def delete_task(task_id: int, user_id: int) -> bool:
-    """Удаляет задачу, если она принадлежит пользователю."""
     data = _load_from_gist()
     initial_len = len(data["tasks"])
     data["tasks"] = [t for t in data["tasks"] if not (t["id"] == task_id and t["user_id"] == user_id)]
