@@ -4,6 +4,8 @@ from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.types import ParseMode, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from datetime import datetime
+import pytz
+from pytz import timezone
 import storage as st
 
 logger = logging.getLogger(__name__)
@@ -63,13 +65,17 @@ async def process_time(message: types.Message, state: FSMContext):
     logger.info(f"process_time вызван с текстом: {message.text}")
     time_str = message.text.strip()
     try:
-        remind_time = datetime.strptime(time_str, "%d.%m.%Y %H:%M")
+        # Часовой пояс Тюмени (Asia/Yekaterinburg, UTC+5)
+        local_tz = timezone('Asia/Yekaterinburg')
+        remind_time_naive = datetime.strptime(time_str, "%d.%m.%Y %H:%M")
+        remind_time_local = local_tz.localize(remind_time_naive)
+        remind_time_utc = remind_time_local.astimezone(pytz.utc).replace(tzinfo=None)
     except ValueError:
         await message.answer("❌ Неправильный формат. Используйте: ДД.ММ.ГГГГ ЧЧ:ММ")
         return
 
-    now = datetime.now()
-    if remind_time < now:
+    now_utc = datetime.utcnow()
+    if remind_time_utc < now_utc:
         await message.answer("⚠️ Указанное время уже прошло. Напоминание может не сработать, но задача будет сохранена.")
 
     data = await state.get_data()
@@ -77,7 +83,7 @@ async def process_time(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
 
     try:
-        task_id = await st.add_task(user_id, text, remind_time)
+        task_id = await st.add_task(user_id, text, remind_time_utc)  # сохраняем UTC
     except Exception as e:
         logger.exception("Ошибка при добавлении задачи в Gist")
         await message.answer("❌ Не удалось сохранить задачу из-за технической ошибки. Попробуйте позже.")
@@ -89,7 +95,7 @@ async def process_time(message: types.Message, state: FSMContext):
         f"✅ Задача добавлена!\n\n"
         f"ID: {task_id}\n"
         f"Текст: {text}\n"
-        f"Напомню: {remind_time.strftime('%d.%m.%Y %H:%M')}",
+        f"Напомню: {remind_time_utc.strftime('%d.%m.%Y %H:%M')} UTC",
         reply_markup=ReplyKeyboardRemove()
     )
 
@@ -116,8 +122,12 @@ async def cmd_tasks(message: types.Message):
     text = "📋 <b>Ваши активные задачи:</b>\n\n"
     for task_id, task_text, remind_time_str in tasks:
         remind_dt = datetime.fromisoformat(remind_time_str)
+        # Переводим в локальное время для отображения
+        local_tz = timezone('Asia/Yekaterinburg')
+        remind_utc = pytz.utc.localize(remind_dt)
+        remind_local = remind_utc.astimezone(local_tz)
         text += f"🔹 <b>ID {task_id}</b>: {task_text}\n"
-        text += f"   ⏰ {remind_dt.strftime('%d.%m.%Y %H:%M')}\n\n"
+        text += f"   ⏰ {remind_local.strftime('%d.%m.%Y %H:%M')}\n\n"
     await message.answer(text, parse_mode=ParseMode.HTML)
 
 async def cmd_delete(message: types.Message):
